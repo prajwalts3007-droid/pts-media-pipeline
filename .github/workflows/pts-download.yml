@@ -1,0 +1,114 @@
+name: pts-download
+
+# Triggered by the PTS Library backend when a job is added to the queue.
+# Stages: download -> 540p HEVC CRF23 HLS + AAC128 per language ->
+# upload to the VPS. The VPS then moves the file to the Pi and clears the copy.
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: PTS job id
+        required: true
+      url:
+        description: Internal source reference; never enter a download link
+        required: false
+        default: worker-source
+      title:
+        description: Title
+        required: true
+      year:
+        description: Release year
+        required: false
+      kind:
+        description: movie or series
+        required: false
+        default: movie
+      season:
+        description: Season number (series only)
+        required: false
+      episode:
+        description: Episode number (series only)
+        required: false
+      label:
+        description: Human readable label
+        required: false
+      callback:
+        description: Worker API base URL
+        required: true
+      attempt:
+        description: Attempt identifier
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  compress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      JOB_ID: ${{ inputs.job_id }}
+      MEDIA_TITLE: ${{ inputs.title }}
+      MEDIA_YEAR: ${{ inputs.year }}
+      MEDIA_KIND: ${{ inputs.kind }}
+      MEDIA_SEASON: ${{ inputs.season }}
+      MEDIA_EPISODE: ${{ inputs.episode }}
+      LABEL: ${{ inputs.label }}
+      CALLBACK: ${{ inputs.callback }}
+      ATTEMPT: ${{ inputs.attempt }}
+      WORKER_TOKEN: ${{ secrets.WORKER_TOKEN }}
+      UPLOAD_ORIGIN_IP: ${{ secrets.UPLOAD_ORIGIN_IP }}
+      UPLOAD_CA_PEM: ${{ vars.UPLOAD_CA_PEM }}
+      UPLOAD_WORKERS: ${{ vars.UPLOAD_WORKERS || '8' }}
+    steps:
+      - name: Ensure ffmpeg with HEVC support
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            installed=false
+            for attempt in 1 2; do
+              echo "Installing FFmpeg and ffprobe (attempt ${attempt}/2)"
+              if sudo timeout --kill-after=10s 90s apt-get \
+                   -o Acquire::Retries=1 -o Acquire::http::Timeout=15 \
+                   -o Acquire::https::Timeout=15 -o DPkg::Lock::Timeout=20 update && \
+                 sudo env DEBIAN_FRONTEND=noninteractive timeout --kill-after=10s 150s apt-get \
+                   -o Acquire::Retries=1 -o Acquire::http::Timeout=15 \
+                   -o Acquire::https::Timeout=15 -o DPkg::Lock::Timeout=20 \
+                   install -y --no-install-recommends ffmpeg; then
+                installed=true
+                break
+              fi
+              echo "FFmpeg installation attempt ${attempt} failed or timed out"
+              if [ "$attempt" -lt 2 ]; then sleep 5; fi
+            done
+            if [ "$installed" != true ]; then
+              echo "::error::FFmpeg setup failed after two bounded installation attempts. Retry this job on a fresh runner."
+              exit 1
+            fi
+          fi
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version
+          ffprobe -version
+          ffmpeg -hide_banner -encoders > "$RUNNER_TEMP/pts-ffmpeg-encoders.txt"
+          if ! grep -qw libx265 "$RUNNER_TEMP/pts-ffmpeg-encoders.txt"; then
+            echo "::error::The installed FFmpeg does not include the libx265 HEVC encoder."
+            exit 1
+          fi
+          echo "FFmpeg, ffprobe and libx265 HEVC support verified"
+
+      - name: Download, compress and upload
+        timeout-minutes: 330
+        run: |
+          curl -sL -o pts_pipeline.py \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_pipeline.py"
+          python3 -u pts_pipeline.py
+
+      - name: Report failure
+        if: failure()
+        timeout-minutes: 2
+        run: |
+          curl -sL -o pts_pipeline.py \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_pipeline.py"
+          python3 -u pts_pipeline.py --report-failure
