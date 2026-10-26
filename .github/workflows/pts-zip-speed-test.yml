@@ -1,0 +1,25 @@
+name: pts-zip-speed-test
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      PTS_PROBE_URL_R2: ${{ secrets.PTS_PROBE_URL_R2 }}
+      PTS_PROBE_URL_GCS: ${{ secrets.PTS_PROBE_URL_GCS }}
+      PTS_PROBE_HF_TOKEN: ${{ secrets.PTS_PROBE_HF_TOKEN }}
+      HF_HUB_DISABLE_PROGRESS_BARS: '1'
+      HF_HUB_DISABLE_TELEMETRY: '1'
+    steps:
+      - name: Install bucket client
+        run: python3 -m pip install --disable-pip-version-check -q 'huggingface_hub>=2.3,<3'
+      - name: Measure bounded source download and direct bucket upload
+        run: |
+          curl -fsSL --retry 3 -o pts_zip_speed_test.py \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_speed_test.py"
+          python3 -u pts_zip_speed_test.py
