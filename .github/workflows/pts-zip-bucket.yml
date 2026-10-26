@@ -1,0 +1,36 @@
+name: pts-zip-bucket
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        required: true
+        type: string
+      attempt:
+        required: true
+        type: string
+      callback:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  zip-to-bucket:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Install bucket client
+        run: python3 -m pip install --disable-pip-version-check -q 'huggingface_hub>=2.3,<3' 'requests>=2.31,<3'
+      - name: Extract ZIP directly to bucket
+        timeout-minutes: 345
+        env:
+          PTS_JOB_ID: ${{ inputs.job_id }}
+          PTS_ATTEMPT: ${{ inputs.attempt }}
+          PTS_CALLBACK: ${{ inputs.callback }}
+          PTS_JOB_TOKEN: ${{ secrets[format('PTS_ZIP_JOB_{0}_{1}', inputs.job_id, inputs.attempt)] }}
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o zip_bucket.py "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_bucket_source.py"
+          curl -fsSL --retry 3 -o zip_runner.py "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_bucket_runner.py"
+          python3 -u zip_runner.py
