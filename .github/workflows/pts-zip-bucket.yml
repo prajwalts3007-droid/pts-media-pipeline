@@ -1,0 +1,60 @@
+name: pts-zip-bucket
+
+# Triggered by the PTS Library backend for ZIP-to-bucket transfers.
+# The runner fetches the source URL and HF bucket token from the VPS using
+# a short-lived job token, extracts ZIP members one at a time via HTTP
+# ranges, and uploads each member directly to the HF Storage Bucket.
+# Media bytes never pass through the VPS.
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: PTS relay job id
+        required: true
+      attempt:
+        description: Attempt number
+        required: true
+      callback:
+        description: Worker API base URL
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  zip-to-bucket:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Install dependencies
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check -q \
+            'huggingface_hub>=2.3,<3' 'requests>=2.31,<3'
+
+      - name: Download, extract and upload ZIP to bucket
+        timeout-minutes: 340
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          ATTEMPT: ${{ inputs.attempt }}
+          CALLBACK: ${{ inputs.callback }}
+          WORKER_TOKEN: ${{ secrets.PTS_ZIP_JOB_TOKEN }}
+          HF_HUB_DISABLE_PROGRESS_BARS: '1'
+          HF_HUB_DISABLE_TELEMETRY: '1'
+        run: |
+          curl -fsSL --retry 3 -o pts_zip_bucket.py \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_bucket.py"
+          python3 -u pts_zip_bucket.py
+
+      - name: Report failure
+        if: failure()
+        timeout-minutes: 2
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          CALLBACK: ${{ inputs.callback }}
+          WORKER_TOKEN: ${{ secrets.PTS_ZIP_JOB_TOKEN }}
+        run: |
+          curl -fsSL --retry 3 -o pts_zip_bucket.py \
+            "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_bucket.py"
+          python3 -u pts_zip_bucket.py --report-failure
