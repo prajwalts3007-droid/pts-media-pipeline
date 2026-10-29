@@ -1,0 +1,22 @@
+name: temporary-pixeldrain-download-probe
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Download test file as the episode runner would
+        env:
+          FILE_URL: https://pixeldrain.com/api/file/QoN5AXGy
+        run: |
+          python3 - <<'PYPROBE'
+          import os, urllib.request
+          req = urllib.request.Request(os.environ['FILE_URL'], headers={'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', 'Accept': '*/*'})
+          with urllib.request.urlopen(req, timeout=60) as response:
+              data = response.read(1000)
+              assert data == b'PTS download runner connectivity probe\n', 'unexpected file content'
+              print('Episode runner can download directly from Pixeldrain; status', response.status)
+          PYPROBE
