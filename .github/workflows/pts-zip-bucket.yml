@@ -33,5 +33,6 @@ jobs:
           set -euo pipefail
           curl -fsSL --retry 3 -o zip_bucket.py "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_bucket_source.py"
           curl -fsSL --retry 3 -o zip_pixeldrain.py "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_pixeldrain.py"
+          curl -fsSL --retry 3 -o zip_archive.py "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_archive.py"
           curl -fsSL --retry 3 -o zip_runner.py "https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/pts_zip_bucket_runner.py"
           python3 -u zip_runner.py
