@@ -11,7 +11,8 @@ import time
 
 import requests
 
-from zip_bucket import SourceError, publish_zip
+from zip_bucket import SourceError, publish_zip as publish_bucket
+from zip_pixeldrain import publish_zip as publish_pixeldrain
 
 
 class Reporter:
@@ -86,24 +87,30 @@ def main():
         config = reporter.call("GET")
         if config.get("cancelled"):
             return
-        if (config.get("destination") != "bucket" or config.get("attempt") != attempt or
-                not config.get("bucket_token") or not config.get("url")):
-            raise SourceError("The callback returned a different bucket job")
+        dest = config.get("destination")
+        if (dest not in ("bucket", "pixeldrain_zip") or config.get("attempt") != attempt or
+                not config.get("url") or not config.get("bucket_token" if dest == "bucket" else "pixeldrain_key")):
+            raise SourceError("The callback returned a different ZIP job")
         limit = min(int(config.get("max_bytes") or 0), 100 << 30)
         if limit < 1:
             raise SourceError("The transfer safety cap is invalid")
         reporter.deadline = time.monotonic() + min(5.5 * 3600, int(config.get("max_seconds") or 0))
         thread = threading.Thread(target=reporter.loop, daemon=True)
         thread.start()
-        manifest, count, _ = publish_zip(config["url"], job_id, attempt,
-                                         config["bucket_token"], reporter.update,
-                                         reporter.check, limit=limit)
+        if dest == "bucket":
+            manifest, count, _ = publish_bucket(config["url"], job_id, attempt,
+                                                config["bucket_token"], reporter.update,
+                                                reporter.check, limit=limit)
+        else:
+            manifest, count = publish_pixeldrain(config["url"], job_id, attempt,
+                                                 config["pixeldrain_key"], reporter.update,
+                                                 reporter.check, limit=limit)
         reporter.check()
         reporter.stop.set()
         thread.join(timeout=6)
         reporter.call("POST", "/finish", {"stage": "done", "bucket_manifest": manifest,
-                                           "bucket_count": count, "message": "Uploaded to the public bucket"})
-        print("Bucket transfer complete; files:", count, flush=True)
+                                           "bucket_count": count, "message": "ZIP files uploaded"})
+        print("ZIP transfer complete; files:", count, flush=True)
     except Exception as exc:
         reporter.stop.set()
         # Only our own fixed errors are safe: requests/HF SDK exceptions may
