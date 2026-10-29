@@ -26,8 +26,13 @@ def upload_file(key, name, path=None, content=None, session=None):
     else:
         payload = content
     try:
-        response = session.put(API + "/" + quote(name, safe=""), data=payload,
-                               auth=("", key), timeout=(30, 180))
+        try:
+            response = session.put(API + "/" + quote(name, safe=""), data=payload,
+                                   auth=("", key), timeout=(30, 180))
+        except requests.Timeout:
+            raise SourceError("Pixeldrain upload timed out") from None
+        except requests.RequestException:
+            raise SourceError("Pixeldrain upload connection failed") from None
         if response.status_code != 201:
             raise SourceError(f"Pixeldrain rejected upload (HTTP {response.status_code})")
         try:
